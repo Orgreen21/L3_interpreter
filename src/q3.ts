@@ -1,7 +1,7 @@
-import {  Exp, Program } from "./L31-ast";
-import { Result, makeFailure } from "../shared/result";
+import {  Exp, Program, parseSExp, parseL31Exp, isProgram, isAppExp, isBoolExp, isDefineExp, isNumExp, isPrimOp, isStrExp, isVarRef, makeDefineExp, makeProgram } from "./L31-ast";
+import { Result, makeFailure, bind, makeOk } from "../shared/result";
 
-const myCondExp = bind(parseSexp("(cond (1 1) (else 3))"), parseL1Exp);
+const myCondExp = bind(parseSExp("(cond (1 1) (else 3))"), parseL31Exp);
 console.log(JSON.stringify(myCondExp, null, 2))
 /*
 Purpose: Transform L31 AST to L3 AST

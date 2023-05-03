@@ -1,6 +1,6 @@
 // ===========================================================
 // AST type models
-import { map, pipe, zipWith } from "ramda";
+import { map, zipWith } from "ramda";
 import { makeEmptySExp, makeSymbolSExp, SExpValue, makeCompoundSExp, valueToString } from '../imp/L3-value'
 import { first, second, rest, allT, isEmpty } from "../shared/list";
 import { isArray, isString, isNumericString, isIdentifier } from "../shared/type-predicates";
@@ -225,10 +225,15 @@ const parseIfExp = (params: Sexp[]): Result<IfExp> =>
 
 // Check with Eithan if the following is correct:
 // Do we need to check if rest is not empty? Do I return a correct Cond?
-const parseElseClause = (params: Sexp[]): Result<elseClause> =>
+const parseElseClause = (params: Sexp): Result<elseClause> =>
     isEmpty(params) ? makeFailure(`Empty else clause.`) :
-    first(params) === "else" ? bind(mapResult(parseL31CExp, rest(params)), (cexps: CExp[]) => makeOk(makeElseClause(cexps))) :
-    makeFailure(`Invalid else clause. Should start with "else".`);
+    params.length != 2 ? makeFailure(`params is: ${JSON.stringify(params, null, 2)}`) :
+    bind(parseL31CExp(params[1]), (then: CExp) =>
+        bind(makeOk([then]), (thenArr: CExp[]) => 
+        //makeFailure('else clause is: ' + JSON.stringify(makeElseClause(thenArr), null, 2)))
+        makeOk(makeElseClause(thenArr)))
+    )
+    
 
 const parseCondClauses = (params: Sexp[]): Result<CondClause> =>
   isEmpty(params)
@@ -238,8 +243,8 @@ const parseCondClauses = (params: Sexp[]): Result<CondClause> =>
     : first(params) === "else"
     ? makeFailure(`Invalid cond clause. Should not start with "else".`)
     : bind(parseL31CExp(params[0]), (test: CExp) =>
-        bind(parseL31CExp(params[1]), (then: CExp[]) =>
-          makeOk(makeCondClause(test, then))
+        bind(parseL31CExp(params[1]), (then: CExp) =>
+            bind(makeOk([then]), (thenArr: CExp[]) => makeOk(makeCondClause(test, thenArr)))
         )
       );
 
@@ -263,11 +268,22 @@ const parseCondExp = (params: Sexp[]): Result<CondExp> => {
     }
 
     const condClauses = parseCondClauses(params.slice(0, params.length - 1));
-    const elseClause = parseElseClause([params[params.length - 1]]);
+    const last = params[params.length - 1];
+    if(last[0] !== "else") {
+        return makeFailure(`Invalid cond expression: ${JSON.stringify(params, null, 2)}`);
+    }
 
-    return bind(condClauses, (condClauses: CondClause[]) =>
-        bind(elseClause, (elseClause: CondExp) =>
-            makeOk(makeCondExp(condClauses, elseClause))));
+    //check if there is not more than one else clause
+    if (params.filter((x) => x[0] === "else").length > 1) {
+        return makeFailure(`Invalid cond expression: ${JSON.stringify(params, null, 2)}`);
+    }
+    const elseClause = parseElseClause(last);
+
+
+    return bind(condClauses, (condClauses: CondClause) =>
+        bind(elseClause, (elseClause: elseClause) =>
+            //makeFailure('full clause is: ' + JSON.stringify(makeCondExp([condClauses], elseClause), null, 2))));
+            makeOk(makeCondExp([condClauses], elseClause))));
 }
 
 
@@ -355,7 +371,8 @@ export const unparseL31 = (exp: Program | Exp): string =>
     isVarRef(exp) ? exp.var :
     isProcExp(exp) ? unparseProcExp(exp) :
     isIfExp(exp) ? `(if ${unparseL31(exp.test)} ${unparseL31(exp.then)} ${unparseL31(exp.alt)})` :
-    isCondExp(exp) ? `(cond ${map((ce: CondClause) => `(${unparseL31(ce.test)} ${map(unparseL31, ce.then).join(" ")})`, exp.condclauses).join(" ")} (else ${map(unparseL31, exp.elseclause.then).join(" ")}))` :
+    // Join condClauses with " " and add a final "else" clause
+    isCondExp(exp) ? `(cond ${map((c: CondClause) => `${unparseL31(c.test)} ${unparseLExps(c.then)}`, exp.condclauses).join(" ")} (else ${unparseLExps(exp.elseclause.then)}))` :
     isAppExp(exp) ? `(${unparseL31(exp.rator)} ${unparseLExps(exp.rands)})` :
     isPrimOp(exp) ? exp.op :
     isLetExp(exp) ? unparseLetExp(exp) :
